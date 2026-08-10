@@ -1,0 +1,271 @@
+// ═══════════════════════════════════════════════
+//  Prisma Schema — Checkout MemberHub
+//  Base de dados: Supabase PostgreSQL
+// ═══════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────
+//  Produtos (packs do MemberHub)
+// ─────────────────────────────────────────────
+model Product {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  currency    String   @default("USD")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders Order[]
+
+  @@map("products")
+}
+
+// ─────────────────────────────────────────────
+//  Pedidos
+// ─────────────────────────────────────────────
+enum PaymentMethod {
+  VOUCHER
+  CRYPTO
+}
+
+enum OrderStatus {
+  PENDING
+  PAYMENT_SUBMITTED
+  PAYMENT_CONFIRMED
+  UNDER_REVIEW
+  APPROVED
+  DELIVERED
+  REJECTED
+  EXPIRED
+  REFUNDED
+}
+
+model Order {
+  id                   String        @id @default(uuid())
+  publicId             String        @unique @default(cuid())
+  productId            String?
+  product              Product?      @relation(fields: [productId], references: [id])
+  packageNameSnapshot  String?       // snapshot do nome do pacote no momento da compra
+  referencePrice       Decimal?      @db.Decimal(10, 2)   // preço de referência do pacote
+  referenceCurrency    String?       @default("USD")
+  amount               Decimal       @db.Decimal(10, 2)   // valor cobrado (entered ou voucher)
+  currency             String        @default("USD")
+  paymentMethod        PaymentMethod
+  status               OrderStatus   @default(PENDING)
+  customerEmail        String?
+  customerIp           String?
+  metadata             Json?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  expiresAt            DateTime?
+  approvedAt           DateTime?
+  deliveredAt          DateTime?
+
+  voucherSubmission VoucherSubmission?
+  cryptoPayment     CryptoPayment?
+  paymentIntents    PaymentIntent[]
+  auditLogs         AuditLog[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+// ─────────────────────────────────────────────
+//  Vouchers (Gift Cards)
+// ─────────────────────────────────────────────
+enum VoucherProvider {
+  G2A
+  ENEBA
+  MANUAL
+}
+
+enum VerificationStatus {
+  PENDING
+  MANUAL_REVIEW
+  VERIFIED
+  REJECTED
+  DUPLICATE
+}
+
+model VoucherSubmission {
+  id                 String             @id @default(uuid())
+  orderId            String             @unique
+  order              Order              @relation(fields: [orderId], references: [id])
+  provider           VoucherProvider
+  codeLast4          String
+  codeHash           String             @unique
+  codeCiphertext     String
+  verificationStatus VerificationStatus @default(PENDING)
+  verificationNotes  String?
+  submittedAt        DateTime           @default(now())
+  reviewedAt         DateTime?
+  reviewedBy         String?
+
+  @@map("voucher_submissions")
+}
+
+// ─────────────────────────────────────────────
+//  Payment Intent (tentativa de pagamento crypto)
+// ─────────────────────────────────────────────
+enum PaymentIntentStatus {
+  DRAFT
+  VALIDATING
+  READY
+  INVOICE_CREATED
+  EXPIRED
+  CANCELLED
+  FAILED
+}
+
+model PaymentIntent {
+  id              String              @id @default(uuid())
+  publicId        String              @unique @default(cuid())
+  orderId         String
+  order           Order               @relation(fields: [orderId], references: [id])
+  method          String              @default("CRYPTO")
+  enteredAmount   Decimal             @db.Decimal(18, 2)  // valor digitado pelo cliente
+  baseCurrency    String              @default("USD")
+  selectedCrypto  String
+  selectedNetwork String
+  status          PaymentIntentStatus @default(DRAFT)
+  expiresAt       DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  cryptoPayment CryptoPayment?
+
+  @@index([orderId])
+  @@index([status])
+  @@map("payment_intents")
+}
+
+// ─────────────────────────────────────────────
+//  Pagamentos Crypto (Cryptomus)
+// ─────────────────────────────────────────────
+model CryptoPayment {
+  id              String   @id @default(uuid())
+  orderId         String   @unique
+  order           Order    @relation(fields: [orderId], references: [id])
+  paymentIntentId String   @unique
+  paymentIntent   PaymentIntent @relation(fields: [paymentIntentId], references: [id])
+  provider        String   @default("CRYPTOMUS")
+
+  // Identificadores Cryptomus
+  cryptomusUuid    String?  @unique  // uuid da invoice Cryptomus
+  cryptomusOrderId String   @unique  // nosso order_id enviado para Cryptomus (ex: CP_xxxx)
+
+  // Valores
+  enteredAmount   Decimal  @db.Decimal(18, 2)   // valor que o cliente digitou (USD)
+  invoiceAmount   Decimal  @db.Decimal(18, 2)   // valor da invoice criada na Cryptomus
+  invoiceCurrency String   @default("USD")
+
+  // Valores crypto (preenchidos após criação da invoice e webhook)
+  payerAmount     Decimal? @db.Decimal(36, 18)  // ex: 44.91 USDT
+  payerCurrency   String?
+  network         String?
+  address         String?
+
+  // Confirmação de pagamento
+  paymentAmount    Decimal? @db.Decimal(36, 18)
+  paymentAmountUsd Decimal? @db.Decimal(18, 8)
+  merchantAmount   Decimal? @db.Decimal(36, 18)
+  commission       Decimal? @db.Decimal(36, 18)
+
+  txid        String?
+  fromAddress String?
+
+  providerStatus String  @default("CREATED")
+  isFinal        Boolean @default(false)
+  invoiceUrl     String?
+  expiresAt      DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  confirmedAt DateTime?
+
+  webhookEvents WebhookEvent[]
+
+  @@index([cryptomusUuid])
+  @@index([cryptomusOrderId])
+  @@map("crypto_payments")
+}
+
+// ─────────────────────────────────────────────
+//  Webhook Idempotência
+// ─────────────────────────────────────────────
+model WebhookEvent {
+  id              String         @id @default(uuid())
+  eventHash       String         @unique  // hash SHA-256 do payload para deduplicação
+  provider        String         @default("cryptomus")
+  cryptoPaymentId String?
+  cryptoPayment   CryptoPayment? @relation(fields: [cryptoPaymentId], references: [id])
+  providerStatus  String?
+  payloadJson     Json
+  receivedAt      DateTime       @default(now())
+  processedAt     DateTime?
+
+  @@index([eventHash])
+  @@map("webhook_events")
+}
+
+// ─────────────────────────────────────────────
+//  Admin Users
+// ─────────────────────────────────────────────
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  REVIEWER
+  SUPPORT
+}
+
+model AdminUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         AdminRole @default(REVIEWER)
+  twoFaSecret  String?
+  twoFaEnabled Boolean   @default(false)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs AuditLog[]
+
+  @@map("admin_users")
+}
+
+// ─────────────────────────────────────────────
+//  Audit Log
+// ─────────────────────────────────────────────
+model AuditLog {
+  id         String    @id @default(uuid())
+  adminId    String
+  admin      AdminUser @relation(fields: [adminId], references: [id])
+  orderId    String?
+  order      Order?    @relation(fields: [orderId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  ip         String?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  @@index([adminId])
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
