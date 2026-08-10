@@ -1,4 +1,4 @@
-import { IsEnum, IsString, Length, Matches } from 'class-validator';
+import { IsEnum, IsOptional, IsString, Length, Matches } from 'class-validator';
 import { VoucherProvider } from '@prisma/client';
 
 export class SubmitVoucherDto {
@@ -11,9 +11,13 @@ export class SubmitVoucherDto {
 
   @IsString()
   @Length(8, 64)
-  // Aceita formatos: XXXX-XXXX-XXXX-XXXX ou alfanumérico sem hífens
+  // Aceita: XXXXXXXXXXXXXXXX (Binance 16 chars) ou XXXX-XXXX-XXXX-XXXX
   @Matches(/^[A-Z0-9\-]{8,64}$/, {
     message: 'code must be alphanumeric with optional hyphens',
   })
   code: string;
+
+  @IsOptional()
+  @IsString()
+  type?: 'BINANCE_GIFT_CARD' | 'GENERIC';  // tipo de voucher — define se tenta redeem Binance
 }

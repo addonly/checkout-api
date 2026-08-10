@@ -96,6 +96,7 @@ enum VerificationStatus {
   PENDING
   MANUAL_REVIEW
   VERIFIED
+  PAID
   REJECTED
   DUPLICATE
 }
@@ -105,11 +106,18 @@ model VoucherSubmission {
   orderId            String             @unique
   order              Order              @relation(fields: [orderId], references: [id])
   provider           VoucherProvider
+  voucherType        String             @default("GENERIC")   // GENERIC | BINANCE_GIFT_CARD
   codeLast4          String
   codeHash           String             @unique
   codeCiphertext     String
   verificationStatus VerificationStatus @default(PENDING)
   verificationNotes  String?
+
+  // Resultado Binance (preenchido se voucherType = BINANCE_GIFT_CARD)
+  binanceToken        String?
+  binanceAmount       String?
+  binanceReferenceNo  String?
+
   submittedAt        DateTime           @default(now())
   reviewedAt         DateTime?
   reviewedBy         String?
