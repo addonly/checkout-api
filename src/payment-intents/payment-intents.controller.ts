@@ -4,12 +4,15 @@ import {
 import { PaymentIntentsService } from './payment-intents.service';
 import { CreateCryptoIntentDto } from './dto/create-crypto-intent.dto';
 import { CryptomusService } from '../cryptomus/cryptomus.service';
+import { VouchersService } from '../vouchers/vouchers.service';
+import { SubmitVoucherDto } from '../vouchers/dto/submit-voucher.dto';
 
 @Controller('')
 export class PaymentIntentsController {
   constructor(
     private readonly service: PaymentIntentsService,
     private readonly cryptomusService: CryptomusService,
+    private readonly vouchersService: VouchersService,
   ) {}
 
   /**
@@ -23,6 +26,25 @@ export class PaymentIntentsController {
       baseCurrency: 'USD',
       services,
     };
+  }
+
+  /**
+   * POST /api/v1/orders/:publicId/payment-intents/voucher
+   * Submete Binance Gift Card (ou voucher genérico) para um pedido
+   */
+  @Post('orders/:publicId/payment-intents/voucher')
+  submitVoucher(
+    @Param('publicId') publicId: string,
+    @Body() body: { provider: string; code: string; type?: string },
+  ) {
+    // Normalizar provider para o enum Prisma (uppercase)
+    const dto: SubmitVoucherDto = {
+      orderId: publicId,
+      provider: body.provider?.toUpperCase() as any,
+      code: body.code?.replace(/-/g, '').toUpperCase(),
+      type: body.type as any,
+    };
+    return this.vouchersService.submit(dto);
   }
 
   /**
