@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Param, Post,
+  Body, Controller, Get, HttpException, Param, Post,
 } from '@nestjs/common';
 import { PaymentIntentsService } from './payment-intents.service';
 import { CreateCryptoIntentDto } from './dto/create-crypto-intent.dto';
@@ -33,18 +33,29 @@ export class PaymentIntentsController {
    * Submete Binance Gift Card (ou voucher genérico) para um pedido
    */
   @Post('orders/:publicId/payment-intents/voucher')
-  submitVoucher(
+  async submitVoucher(
     @Param('publicId') publicId: string,
     @Body() body: { provider: string; code: string; type?: string },
   ) {
-    // Normalizar provider para o enum Prisma (uppercase)
-    const dto: SubmitVoucherDto = {
-      orderId: publicId,
-      provider: body.provider?.toUpperCase() as any,
-      code: body.code?.replace(/-/g, '').toUpperCase(),
-      type: body.type as any,
-    };
-    return this.vouchersService.submit(dto);
+    try {
+      const dto: SubmitVoucherDto = {
+        orderId: publicId,
+        provider: (body.provider ?? 'G2A').toUpperCase() as any,
+        code: (body.code ?? '').replace(/-/g, '').toUpperCase(),
+        type: body.type as any,
+      };
+      return await this.vouchersService.submit(dto);
+    } catch (err: any) {
+      // Re-lança com mensagem legível (útil para debug)
+      throw new HttpException(
+        {
+          message: err.message ?? 'Unknown error',
+          cause: err.name ?? 'Error',
+          detail: err.meta ?? null,
+        },
+        err.status ?? 500,
+      );
+    }
   }
 
   /**
