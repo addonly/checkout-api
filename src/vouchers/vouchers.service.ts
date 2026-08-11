@@ -112,16 +112,19 @@ export class VouchersService {
         ? VerificationStatus.PAID
         : VerificationStatus.MANUAL_REVIEW;
 
+      // Construir objecto de update (só incluir campos Binance se existirem)
+      const binanceUpdateData: Record<string, any> = {
+        verificationStatus: newStatus,
+        verificationNotes: result.error ?? null,
+        reviewedAt: new Date(),
+      };
+      if (result.token       !== undefined) binanceUpdateData['binanceToken']       = result.token;
+      if (result.amount      !== undefined) binanceUpdateData['binanceAmount']      = result.amount;
+      if (result.referenceNo !== undefined) binanceUpdateData['binanceReferenceNo'] = result.referenceNo;
+
       await this.prisma.voucherSubmission.update({
         where: { id: submission.id },
-        data: {
-          verificationStatus: newStatus,
-          binanceToken: result.token,
-          binanceAmount: result.amount,
-          binanceReferenceNo: result.referenceNo,
-          verificationNotes: result.error,
-          reviewedAt: new Date(),
-        },
+        data: binanceUpdateData as any,
       });
 
       // Se pago → confirmar pedido
