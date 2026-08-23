@@ -1,14 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CryptomusClient, CryptomusServiceOption, CryptomusInvoicePayload, CryptomusInvoiceResponse } from './cryptomus.client';
 
-// Allowlist interna — apenas estes pares são permitidos
-// NOTA: os codes de network são os que a Cryptomus usa internamente
+// Allowlist interna — network codes exactamente como a Cryptomus retorna
 const CRYPTO_ALLOWLIST: Array<{ currency: string; network: string }> = [
-  { currency: 'USDT', network: 'tron' },
+  { currency: 'USDT', network: 'TRON' },
   { currency: 'USDT', network: 'BSC' },
   { currency: 'USDT', network: 'ETH' },
-  { currency: 'USDT', network: 'ETH_MATIC' },
   { currency: 'USDT', network: 'SOL' },
+  { currency: 'USDT', network: 'POLYGON' },
+  { currency: 'USDT', network: 'ARBITRUM' },
   { currency: 'USDC', network: 'ETH' },
   { currency: 'USDC', network: 'BSC' },
   { currency: 'USDC', network: 'SOL' },
@@ -57,9 +57,7 @@ export class CryptomusService {
   async getFilteredServices() {
     const all = await this.getServices();
 
-    this.logger.debug(`Total services from Cryptomus: ${all.length}`);
-
-    const result = CRYPTO_ALLOWLIST
+    return CRYPTO_ALLOWLIST
       .map(allowed => {
         const svc = all.find(
           s => s.currency === allowed.currency &&
@@ -76,9 +74,6 @@ export class CryptomusService {
         };
       })
       .filter(Boolean);
-
-    this.logger.debug(`Filtered services: ${result.length}`);
-    return result;
   }
 
   // -- Diagnóstico: retorna serviços brutos da Cryptomus -------
@@ -99,7 +94,6 @@ export class CryptomusService {
   ): Promise<{ valid: boolean; minAmount: string; maxAmount: string }> {
     const services = await this.getServices();
 
-    // Se não há serviços (credenciais em falta), rejeitar gracefully
     if (services.length === 0) {
       this.logger.warn('No services available — Cryptomus credentials may be missing');
       return { valid: false, minAmount: '0', maxAmount: '0' };
