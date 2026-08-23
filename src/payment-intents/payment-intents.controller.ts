@@ -96,4 +96,15 @@ export class PaymentIntentsController {
   getQr(@Param('publicId') publicId: string) {
     return this.service.getQr(publicId);
   }
+
+  /**
+   * GET /api/v1/crypto/services/raw
+   * Diagnóstico — retorna serviços brutos da Cryptomus (sem filtro)
+   * REMOVER em produção final
+   */
+  @Get('crypto/services/raw')
+  async getRawServices() {
+    return this.cryptomusService.getRawServices();
+  }
 }
+

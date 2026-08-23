@@ -1,12 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CryptomusClient, CryptomusServiceOption, CryptomusInvoicePayload, CryptomusInvoiceResponse } from './cryptomus.client';
 
-// Allowlist interna — apenas estes pares são permitidos
+// Allowlist interna � apenas estes pares s�o permitidos
+// NOTA: os codes de network s�o os que a Cryptomus usa internamente
 const CRYPTO_ALLOWLIST: Array<{ currency: string; network: string }> = [
   { currency: 'USDT', network: 'tron' },
-  { currency: 'USDT', network: 'eth' },
+  { currency: 'USDT', network: 'BSC' },
+  { currency: 'USDT', network: 'ETH' },
+  { currency: 'USDT', network: 'ETH_MATIC' },
+  { currency: 'USDT', network: 'SOL' },
+  { currency: 'USDC', network: 'ETH' },
+  { currency: 'USDC', network: 'BSC' },
+  { currency: 'USDC', network: 'SOL' },
   { currency: 'BTC',  network: 'BTC' },
-  { currency: 'ETH',  network: 'eth' },
+  { currency: 'ETH',  network: 'ETH' },
+  { currency: 'SOL',  network: 'SOL' },
+  { currency: 'BNB',  network: 'BSC' },
 ];
 
 interface CachedServices {
@@ -18,11 +27,11 @@ interface CachedServices {
 export class CryptomusService {
   private readonly logger = new Logger(CryptomusService.name);
   private cache: CachedServices | null = null;
-  private readonly cacheTtlMs = 300_000; // 5 minutos
+  private readonly cacheTtlMs = 120_000; // 2 minutos
 
   constructor(private readonly client: CryptomusClient) {}
 
-  // ── Buscar e cachear lista de serviços ─────────
+  // -- Buscar e cachear lista de servi�os ----------------------
   async getServices(): Promise<CryptomusServiceOption[]> {
     const now = Date.now();
     if (this.cache && now - this.cache.fetchedAt < this.cacheTtlMs) {
@@ -34,19 +43,23 @@ export class CryptomusService {
         '/v1/payment/services',
         {},
       );
-      this.cache = { data: response.result ?? [], fetchedAt: now };
+      const list = response.result ?? [];
+      this.logger.log(`Cryptomus services loaded: ${list.length} entries`);
+      this.cache = { data: list, fetchedAt: now };
       return this.cache.data;
-    } catch (err) {
-      this.logger.warn('Failed to fetch Cryptomus services, returning cached or empty');
+    } catch (err: any) {
+      this.logger.warn(`Failed to fetch Cryptomus services: ${err?.message}`);
       return this.cache?.data ?? [];
     }
   }
 
-  // ── Serviços filtrados (allowlist + disponíveis) ──
+  // -- Servi�os filtrados (allowlist + dispon�veis) ------------
   async getFilteredServices() {
     const all = await this.getServices();
 
-    return CRYPTO_ALLOWLIST
+    this.logger.debug(`Total services from Cryptomus: ${all.length}`);
+
+    const result = CRYPTO_ALLOWLIST
       .map(allowed => {
         const svc = all.find(
           s => s.currency === allowed.currency &&
@@ -63,15 +76,35 @@ export class CryptomusService {
         };
       })
       .filter(Boolean);
+
+    this.logger.debug(`Filtered services: ${result.length}`);
+    return result;
   }
 
-  // ── Validar se par currency/network está disponível ──
+  // -- Diagn�stico: retorna servi�os brutos da Cryptomus -------
+  async getRawServices(): Promise<{ total: number; available: number; services: CryptomusServiceOption[] }> {
+    const all = await this.getServices();
+    return {
+      total: all.length,
+      available: all.filter(s => s.is_available).length,
+      services: all,
+    };
+  }
+
+  // -- Validar se par currency/network est� dispon�vel ---------
   async validateServiceAvailability(
     currency: string,
     network: string,
     amount: string,
   ): Promise<{ valid: boolean; minAmount: string; maxAmount: string }> {
     const services = await this.getServices();
+
+    // Se n�o h� servi�os (credenciais em falta), rejeitar gracefully
+    if (services.length === 0) {
+      this.logger.warn('No services available � Cryptomus credentials may be missing');
+      return { valid: false, minAmount: '0', maxAmount: '0' };
+    }
+
     const svc = services.find(
       s => s.currency === currency && s.network === network && s.is_available,
     );
@@ -89,13 +122,13 @@ export class CryptomusService {
     };
   }
 
-  // ── Criar invoice na Cryptomus ─────────────────
+  // -- Criar invoice na Cryptomus -------------------------------
   async createInvoice(payload: CryptomusInvoicePayload): Promise<CryptomusInvoiceResponse['result']> {
     const response = await this.client.post<CryptomusInvoiceResponse>('/v1/payment', payload);
     return response.result;
   }
 
-  // ── Consultar informações de pagamento ─────────
+  // -- Consultar informa��es de pagamento -----------------------
   async getPaymentInfo(uuid: string) {
     const response = await this.client.post<{ state: number; result: any }>(
       '/v1/payment/info',
@@ -104,7 +137,7 @@ export class CryptomusService {
     return response.result;
   }
 
-  // ── Gerar QR Code ──────────────────────────────
+  // -- Gerar QR Code ---------------------------------------------
   async getQrCode(merchantPaymentUuid: string): Promise<string> {
     const response = await this.client.post<{ state: number; result: { image: string } }>(
       '/v1/payment/qr',
